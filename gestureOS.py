@@ -3,6 +3,8 @@ import mediapipe as mp
 import numpy as np
 import math
 import sys
+import threading
+import requests
 from datetime import datetime
 from pathlib import Path
 from tkinter import filedialog, Tk
@@ -36,9 +38,40 @@ DRAW_COLOR     = (0, 255, 0)
 DRAW_THICKNESS = 4
 ERASER_SIZE    = 40
 
+# Drawing mode colors
+DRAW_COLORS = [
+    (0, 255, 0),      # Green
+    (255, 0, 0),      # Blue
+    (0, 255, 255),    # Yellow
+    (255, 0, 255),    # Magenta
+    (0, 165, 255),    # Orange
+    (255, 255, 0),    # Cyan
+    (0, 150, 255),    # Light Orange
+    (255, 100, 0),    # Dark Blue
+]
+
 # Settings button region (top-right corner)
 BTN_X1, BTN_Y1 = WIDTH - 150, 10
 BTN_X2, BTN_Y2 = WIDTH - 10, 50
+
+# ── Flask Color Picker Server Setup ────────────────────────────────────────────
+try:
+    # Try to import and start Flask server
+    from color_picker_server import app as flask_app, run_server
+    
+    # Start Flask server in background thread
+    flask_thread = threading.Thread(target=run_server, kwargs={'port': 5000}, daemon=True)
+    flask_thread.start()
+    print("[✓] Flask Color Picker server started on http://127.0.0.1:5000")
+    print("[ℹ] Open browser to http://127.0.0.1:5000 for color selection")
+    FLASK_AVAILABLE = True
+except Exception as e:
+    print(f"[!] Flask server not available: {e}")
+    print("[ℹ] Color picker will use default palette")
+    FLASK_AVAILABLE = False
+
+import time
+time.sleep(1)  # Give Flask time to start
 
 # ── Mutable app state ──────────────────────────────────────────────────────────
 state = {
@@ -57,6 +90,15 @@ state = {
     "ok_gesture_pressed": False,   # Flag to prevent multiple triggers from same hold
     "gesture_1_hold":   0,         # Frame counter for gesture 1 hold
     "gesture_2_hold":   0,         # Frame counter for gesture 2 hold
+    # Drawing mode color picker state
+    "draw_color_idx": 0,           # Current draw color index
+    "color_palette_open": False,   # Color palette visible
+    "color_selection_hold": 0,     # Frame counter for color selection
+    "color_selection_pressed": False,  # Flag to prevent multiple triggers
+    "flask_color_bgr": (0, 255, 0),   # Flask web picker rengi (BGR)
+    "flask_color_hex": "#00FF00",      # Flask web picker rengi (HEX)
+    "use_flask_color": False,      # Flask'tan renk al
+    "last_flask_check": time.time(),  # Son Flask API kontrolü
 }
 Path(state["screenshots_dir"]).mkdir(parents=True, exist_ok=True)
 
@@ -379,6 +421,87 @@ def save_screenshot(frame, canvas, canvas_only=False):
         print(f"[OK] Saved to: {filename}")
     return filename
 
+# ── Interactive mode helper functions ──────────────────────────────────────────
+
+def draw_circular_color_palette(frame, center, radius=120, inner_radius=60):
+    """Draw a circular color palette wheel when hand is open."""
+    num_colors = len(DRAW_COLORS)
+    angle_step = 2 * math.pi / num_colors
+    
+    # Draw center circle
+    cv2.circle(frame, center, inner_radius, (30, 30, 30), -1)
+    cv2.circle(frame, center, inner_radius, (200, 200, 200), 3)
+    
+    # Draw color segments
+    for idx, color in enumerate(DRAW_COLORS):
+        angle = idx * angle_step
+        
+        # Outer point
+        outer_x = int(center[0] + radius * math.cos(angle - math.pi / 2))
+        outer_y = int(center[1] + radius * math.sin(angle - math.pi / 2))
+        
+        # Inner point
+        inner_x = int(center[0] + inner_radius * math.cos(angle - math.pi / 2))
+        inner_y = int(center[1] + inner_radius * math.sin(angle - math.pi / 2))
+        
+        # Next segment point
+        next_angle = (idx + 1) * angle_step
+        next_outer_x = int(center[0] + radius * math.cos(next_angle - math.pi / 2))
+        next_outer_y = int(center[1] + radius * math.sin(next_angle - math.pi / 2))
+        
+        # Draw color segment as triangle
+        pts = np.array([
+            [center[0], center[1]],
+            [outer_x, outer_y],
+            [next_outer_x, next_outer_y]
+        ], np.int32)
+        cv2.fillPoly(frame, [pts], color)
+        
+        # Draw border
+        cv2.polylines(frame, [pts], True, (50, 50, 50), 2)
+        
+        # Highlight selected color
+        if idx == state["draw_color_idx"]:
+            highlight_x = int(center[0] + (radius + 20) * math.cos(angle - math.pi / 2))
+            highlight_y = int(center[1] + (radius + 20) * math.sin(angle - math.pi / 2))
+            cv2.circle(frame, (highlight_x, highlight_y), 25, (255, 255, 255), 3)
+            
+            # Draw selected color indicator in center
+            cv2.circle(frame, center, inner_radius - 15, DRAW_COLORS[idx], -1)
+    
+    # Draw current color text in center
+    cv2.putText(frame, f"Color {state['draw_color_idx'] + 1}", 
+                (center[0] - 50, center[1] + 8),
+                cv2.FONT_HERSHEY_DUPLEX, 0.8, (255, 255, 255), 2)
+
+def get_color_from_hand_position(hand_center, palette_center, palette_radius):
+    """Get the nearest color index based on hand position relative to palette."""
+    dx = hand_center[0] - palette_center[0]
+    dy = hand_center[1] - palette_center[1]
+    angle = math.atan2(dy, dx) + math.pi / 2  # Adjust for top-starting palette
+    if angle < 0:
+        angle += 2 * math.pi
+    
+    color_idx = int((angle / (2 * math.pi)) * len(DRAW_COLORS))
+    return color_idx % len(DRAW_COLORS)
+
+def fetch_flask_color():
+    """Fetch current color from Flask server."""
+    if not FLASK_AVAILABLE:
+        return None
+    
+    try:
+        response = requests.get('http://127.0.0.1:5000/api/color/bgr', timeout=0.5)
+        if response.status_code == 200:
+            data = response.json()
+            bgr_tuple = tuple(data.get('bgr', (0, 255, 0)))
+            hex_color = data.get('hex', '#00FF00')
+            return bgr_tuple, hex_color
+    except:
+        pass
+    
+    return None
+
 # ── Mouse callback ─────────────────────────────────────────────────────────────
 def on_mouse(event, x, y, flags, param):
     state["mouse_pos"] = (x, y)
@@ -399,6 +522,15 @@ while True:
 
     frame   = cv2.flip(frame, 1)
     h, w    = frame.shape[:2]
+    
+    # ── Fetch color from Flask web picker (every 200ms) ──
+    current_time = time.time()
+    if FLASK_AVAILABLE and (current_time - state["last_flask_check"]) > 0.2:
+        flask_result = fetch_flask_color()
+        if flask_result:
+            state["flask_color_bgr"], state["flask_color_hex"] = flask_result
+            state["use_flask_color"] = True
+        state["last_flask_check"] = current_time
 
     if not state["show_ui"]:
         rgb     = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
@@ -474,57 +606,95 @@ while True:
 
         # ── Drawing mode logic ──
         if state["main_mode"] == "DRAWING" and not state["menu_open"]:
-            # Right hand controls sub-mode selection
+            # Palette center (at bottom center of screen)
+            palette_center = (WIDTH // 2, HEIGHT - 150)
+            palette_radius = 120
+            
+            # Right hand controls sub-mode and color confirmation via pinch
             if right_landmarks:
                 lm = right_landmarks
-                index  = lm[8].y  < lm[6].y
-                middle = lm[12].y < lm[10].y
-                ring   = lm[16].y < lm[14].y
-                pinky  = lm[20].y < lm[18].y
-
-                if index and not middle and not ring and not pinky:
-                    state["sub_mode"] = "DRAW"
-                elif index and middle and not ring and not pinky:
-                    state["sub_mode"] = "FREE"
-                elif index and middle and ring and not pinky:
-                    state["sub_mode"] = "ERASE"
-
-            # Left hand controls drawing
-            if left_landmarks:
-                if state["sub_mode"] == "DRAW":
-                    if only_index_up(left_landmarks):
-                        draw_point = get_pos(left_landmarks[8], w, h)
-                        if state["prev_point"]:
-                            cv2.line(canvas, state["prev_point"], draw_point, DRAW_COLOR, DRAW_THICKNESS)
-                        state["prev_point"] = draw_point
-                        # Enhanced pen indicator with glow
-                        cv2.circle(frame, draw_point, 12, (0, 150, 0), 2)
-                        cv2.circle(frame, draw_point, 8, DRAW_COLOR, -1)
-                        cv2.circle(frame, draw_point, 4, (255, 255, 255), -1)
+                # Check if color palette is open first
+                if state["color_palette_open"]:
+                    # In color selection mode - pinch (OK gesture) confirms color
+                    ok_detected = is_ok_gesture(right_landmarks, w, h)
+                    if ok_detected:
+                        state["color_selection_hold"] += 1
+                        if state["color_selection_hold"] == 10 and not state["color_selection_pressed"]:
+                            # Confirm color selection
+                            state["color_palette_open"] = False
+                            state["color_selection_pressed"] = True
                     else:
-                        state["prev_point"] = None
-                elif state["sub_mode"] == "FREE":
+                        state["color_selection_hold"] = 0
+                        state["color_selection_pressed"] = False
+                else:
+                    # Normal mode - control drawing sub-modes
+                    index  = lm[8].y  < lm[6].y
+                    middle = lm[12].y < lm[10].y
+                    ring   = lm[16].y < lm[14].y
+                    pinky  = lm[20].y < lm[18].y
+
+                    if index and not middle and not ring and not pinky:
+                        state["sub_mode"] = "DRAW"
+                    elif index and middle and not ring and not pinky:
+                        state["sub_mode"] = "FREE"
+                    elif index and middle and ring and not pinky:
+                        state["sub_mode"] = "ERASE"
+
+            # Left hand controls drawing and color selection
+            if left_landmarks:
+                # Check if open hand and palette not already open
+                if is_open_hand(left_landmarks) and not state["color_palette_open"]:
+                    state["color_palette_open"] = True
                     state["prev_point"] = None
-                elif state["sub_mode"] == "ERASE":
-                    if is_open_hand(left_landmarks):
+                elif is_open_hand(left_landmarks) and state["color_palette_open"]:
+                    # Update color selection while palette is open
+                    center = hand_center(left_landmarks, w, h)
+                    palette_center = (WIDTH // 2, HEIGHT - 150)
+                    state["draw_color_idx"] = get_color_from_hand_position(center, palette_center, palette_radius)
+                elif not is_open_hand(left_landmarks):
+                    # Palette auto-closes when hand is not open
+                    if state["color_palette_open"]:
+                        state["color_palette_open"] = False
+                    
+                    # Normal drawing modes
+                    if state["sub_mode"] == "DRAW":
+                        if only_index_up(left_landmarks):
+                            draw_point = get_pos(left_landmarks[8], w, h)
+                            # Use Flask web picker color if available, otherwise use palette
+                            if state["use_flask_color"]:
+                                current_color = state["flask_color_bgr"]
+                            else:
+                                current_color = DRAW_COLORS[state["draw_color_idx"]]
+                            
+                            if state["prev_point"]:
+                                cv2.line(canvas, state["prev_point"], draw_point, current_color, DRAW_THICKNESS)
+                            state["prev_point"] = draw_point
+                            # Pen indicator with selected color
+                            cv2.circle(frame, draw_point, 12, (0, 150, 0), 2)
+                            cv2.circle(frame, draw_point, 8, current_color, -1)
+                            cv2.circle(frame, draw_point, 4, (255, 255, 255), -1)
+                        else:
+                            state["prev_point"] = None
+                    elif state["sub_mode"] == "FREE":
+                        state["prev_point"] = None
+                    elif state["sub_mode"] == "ERASE":
                         size   = hand_size(left_landmarks, w, h)
                         center = hand_center(left_landmarks, w, h)
-                        cv2.circle(canvas, center, size, (0, 0, 0), -1)
-                        # Enhanced eraser indicator with animation
-                        cv2.circle(frame, center, size + 5, (100, 100, 255), 2)
-                        cv2.circle(frame, center, size, (0, 100, 255), 2)
-                        cv2.circle(frame, center, size - 5, (255, 100, 0), 1)
-                        state["prev_point"] = None
-                    elif only_index_up(left_landmarks):
-                        draw_point = get_pos(left_landmarks[8], w, h)
-                        if state["prev_point"]:
-                            cv2.line(canvas, state["prev_point"], draw_point, (0, 0, 0), ERASER_SIZE)
-                        state["prev_point"] = draw_point
-                        # Enhanced eraser pen with visual feedback
-                        cv2.circle(frame, draw_point, ERASER_SIZE // 2 + 3, (100, 100, 255), 2)
-                        cv2.circle(frame, draw_point, ERASER_SIZE // 2, (0, 100, 255), 2)
-                    else:
-                        state["prev_point"] = None
+                        
+                        if only_index_up(left_landmarks):
+                            # Eraser with index finger
+                            draw_point = get_pos(left_landmarks[8], w, h)
+                            if state["prev_point"]:
+                                cv2.line(canvas, state["prev_point"], draw_point, (0, 0, 0), ERASER_SIZE)
+                            state["prev_point"] = draw_point
+                            # Eraser pen visual feedback
+                            cv2.circle(frame, draw_point, ERASER_SIZE // 2 + 3, (100, 100, 255), 2)
+                            cv2.circle(frame, draw_point, ERASER_SIZE // 2, (0, 100, 255), 2)
+                        else:
+                            state["prev_point"] = None
+
+
+        
         else:
             state["prev_point"] = None
 
@@ -533,18 +703,24 @@ while True:
         _, mask = cv2.threshold(gray, 1, 255, cv2.THRESH_BINARY)
         frame[mask > 0] = canvas[mask > 0]
 
+        # ── Draw color palette if open (Drawing mode) ──
+        if state["main_mode"] == "DRAWING" and state["color_palette_open"]:
+            palette_center = (WIDTH // 2, HEIGHT - 150)
+            draw_circular_color_palette(frame, palette_center, radius=120, inner_radius=60)
+
         # ── HUD with Enhanced Styling ──
-        mode_colors = {"DRAW": (0, 255, 100), "FREE": (100, 200, 255), "ERASE": (0, 150, 255)}
-        mode_bg_colors = {"DRAW": (20, 80, 20), "FREE": (20, 60, 100), "ERASE": (20, 60, 100)}
-        
-        # Mode indicator with background panel
-        cv2.rectangle(frame, (8, 8), (320, 65), mode_bg_colors[state['sub_mode']], -1)
-        cv2.rectangle(frame, (8, 8), (320, 65), mode_colors[state['sub_mode']], 3)
-        # Mode text shadow
-        cv2.putText(frame, f"MODE: {state['sub_mode']}", (13, 42),
-                    cv2.FONT_HERSHEY_DUPLEX, 1.1, (20, 20, 20), 3)
-        cv2.putText(frame, f"MODE: {state['sub_mode']}", (12, 41),
-                    cv2.FONT_HERSHEY_DUPLEX, 1.1, mode_colors[state["sub_mode"]], 2)
+        if state["main_mode"] == "DRAWING":
+            mode_colors = {"DRAW": (0, 255, 100), "FREE": (100, 200, 255), "ERASE": (0, 150, 255)}
+            mode_bg_colors = {"DRAW": (20, 80, 20), "FREE": (20, 60, 100), "ERASE": (20, 60, 100)}
+            
+            # Mode indicator with background panel
+            cv2.rectangle(frame, (8, 8), (320, 65), mode_bg_colors[state['sub_mode']], -1)
+            cv2.rectangle(frame, (8, 8), (320, 65), mode_colors[state['sub_mode']], 3)
+            # Mode text shadow
+            cv2.putText(frame, f"MODE: {state['sub_mode']}", (13, 42),
+                        cv2.FONT_HERSHEY_DUPLEX, 1.1, (20, 20, 20), 3)
+            cv2.putText(frame, f"MODE: {state['sub_mode']}", (12, 41),
+                        cv2.FONT_HERSHEY_DUPLEX, 1.1, mode_colors[state["sub_mode"]], 2)
 
         # Path display with enhanced styling
         display_path = state["screenshots_dir"]
@@ -562,7 +738,13 @@ while True:
                     cv2.FONT_HERSHEY_DUPLEX, 0.7, main_mode_color, 2)
 
         # Controls text with background
-        controls_text = "RIGHT: OK=Menu  |  LEFT: Draw/Select  |  S=Snapshot | D=Drawing | C=Clear | Q=Quit"
+        if state["main_mode"] == "DRAWING":
+            if state["color_palette_open"]:
+                controls_text = "LEFT: Move in palette  |  RIGHT: Pinch=Confirm color  |  S=Snap | D=Drawing | Q=Quit"
+            else:
+                controls_text = "LEFT: Open hand=Color palette | Index=Draw  |  RIGHT: Pinch=Menu  |  S=Snap | D=Drawing | Q=Quit"
+        else:
+            controls_text = "Interactive mode | RIGHT: Pinch=Menu  |  1/2=Switch modes  |  Q=Quit"
         cv2.rectangle(frame, (8, h - 28), (w - 8, h - 2), (25, 25, 25), -1)
         cv2.rectangle(frame, (8, h - 28), (w - 8, h - 2), (80, 80, 80), 2)
         cv2.putText(frame, controls_text, (14, h - 10), cv2.FONT_HERSHEY_DUPLEX, 0.48, (80, 80, 80), 2)
@@ -579,10 +761,6 @@ while True:
         # Draw menu if open
         if state["menu_open"]:
             draw_main_menu(frame)
-        
-        # INTERACTIVE mode placeholder (will be implemented later)
-        # if state["main_mode"] == "INTERACTIVE" and not state["menu_open"]:
-        #     Add interactive mode features here
 
     else:
         # ── UI MODE ──

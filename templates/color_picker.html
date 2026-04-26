@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🎨 Renk Seçici - gestureOS</title>
+    <!-- Pickr CSS -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/themes/classic.min.css"/>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 40px;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 40px;
+        }
+
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #666;
+            font-size: 1em;
+        }
+
+        .picker-section {
+            margin-bottom: 30px;
+        }
+
+        .picker-section label {
+            display: block;
+            font-size: 1.1em;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .pickr-container {
+            display: flex;
+            justify-content: center;
+        }
+
+        .pickr-container .pcr-button {
+            width: 150px !important;
+            height: 150px !important;
+            border-radius: 15px !important;
+            border: 3px solid #ddd !important;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.1) !important;
+        }
+
+        .pickr-container .pcr-button:hover {
+            transform: scale(1.05);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.2) !important;
+        }
+
+        .color-info {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-top: 20px;
+        }
+
+        .color-info h3 {
+            font-size: 1.1em;
+            color: #333;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+
+        .color-values {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+        }
+
+        .color-value {
+            background: white;
+            border-radius: 8px;
+            padding: 12px;
+            border-left: 4px solid #667eea;
+        }
+
+        .color-value-label {
+            font-size: 0.85em;
+            color: #999;
+            font-weight: 600;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+
+        .color-value-content {
+            font-size: 1em;
+            color: #333;
+            font-family: 'Monaco', 'Courier New', monospace;
+            word-break: break-all;
+        }
+
+        .preview-section {
+            margin-top: 30px;
+            text-align: center;
+        }
+
+        .preview-section h3 {
+            font-size: 1.1em;
+            color: #333;
+            margin-bottom: 15px;
+        }
+
+        .color-preview {
+            width: 100%;
+            height: 100px;
+            border-radius: 10px;
+            border: 3px solid #ddd;
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.1);
+            transition: all 0.3s ease;
+        }
+
+        .status {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+            font-weight: 600;
+            font-size: 0.95em;
+        }
+
+        .status.connected {
+            background: #d4edda;
+            color: #155724;
+            border: 2px solid #28a745;
+        }
+
+        .status.disconnected {
+            background: #f8d7da;
+            color: #721c24;
+            border: 2px solid #f5c6cb;
+        }
+
+        .status.waiting {
+            background: #fff3cd;
+            color: #856404;
+            border: 2px solid #ffeaa7;
+        }
+
+        /* Pickr Customization */
+        .pcr-app {
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2) !important;
+            border-radius: 10px !important;
+            background: white !important;
+        }
+
+        .pcr-result {
+            color: #333 !important;
+        }
+
+        .instructions {
+            background: #e7f3ff;
+            border-left: 4px solid #2196F3;
+            padding: 15px;
+            border-radius: 5px;
+            margin-bottom: 30px;
+            font-size: 0.95em;
+            color: #0c5aa0;
+            line-height: 1.6;
+        }
+
+        .instructions strong {
+            color: #0c5aa0;
+        }
+
+        @media (max-width: 600px) {
+            .container {
+                padding: 20px;
+            }
+
+            .header h1 {
+                font-size: 1.8em;
+            }
+
+            .color-values {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎨 Renk Seçici</h1>
+            <p>gestureOS Çizim Modu</p>
+        </div>
+
+        <div class="instructions">
+            <strong>📝 Kullanım:</strong><br>
+            Rengi seçin ve el açık durumdayken OpenCV uygulamasında otomatik güncellenecek.
+        </div>
+
+        <div class="picker-section">
+            <label for="colorPicker">Renk Seç:</label>
+            <div class="pickr-container">
+                <div class="pickr"></div>
+            </div>
+        </div>
+
+        <div class="color-info">
+            <h3>📊 Renk Bilgileri</h3>
+            <div class="color-values">
+                <div class="color-value">
+                    <div class="color-value-label">HEX</div>
+                    <div class="color-value-content" id="hexValue">#00FF00</div>
+                </div>
+                <div class="color-value">
+                    <div class="color-value-label">RGB</div>
+                    <div class="color-value-content" id="rgbValue">rgb(0, 255, 0)</div>
+                </div>
+                <div class="color-value">
+                    <div class="color-value-label">BGR (OpenCV)</div>
+                    <div class="color-value-content" id="bgrValue">BGR(0, 255, 0)</div>
+                </div>
+                <div class="color-value">
+                    <div class="color-value-label">HSV</div>
+                    <div class="color-value-content" id="hsvValue">H:60 S:100 V:100</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="preview-section">
+            <h3>👁️ Renk Önizlemesi</h3>
+            <div class="color-preview" id="colorPreview" style="background-color: rgb(0, 255, 0);"></div>
+        </div>
+
+        <div class="status waiting" id="status">
+            ⏳ Bağlanıyor...
+        </div>
+    </div>
+
+    <!-- Pickr JS -->
+    <script src="https://cdn.jsdelivr.net/npm/@simonwep/pickr/dist/pickr.min.js"></script>
+    <script>
+        // Initialize Pickr
+        const pickr = new Pickr({
+            el: '.pickr',
+            theme: 'classic',
+            default: '#00FF00',
+            comparison: false,
+            components: {
+                preview: true,
+                hue: true,
+                saturation: true,
+                brightness: true,
+                alpha: false,
+                interaction: {
+                    hex: true,
+                    rgba: true,
+                    hsva: true,
+                    input: true,
+                    clear: false,
+                    save: false
+                }
+            },
+            swatches: [
+                '#00FF00', // Green
+                '#FF0000', // Blue (BGR)
+                '#00FFFF', // Yellow
+                '#FF00FF', // Magenta
+                '#00A5FF', // Orange
+                '#FFFF00', // Cyan
+            ]
+        });
+
+        // Update color display
+        function updateColorDisplay(hexColor) {
+            // Parse hex
+            const r = parseInt(hexColor.substr(1, 2), 16);
+            const g = parseInt(hexColor.substr(3, 2), 16);
+            const b = parseInt(hexColor.substr(5, 2), 16);
+
+            // BGR for OpenCV
+            const bgr = [b, g, r];
+
+            // HSV calculation
+            function rgbToHsv(r, g, b) {
+                r /= 255; g /= 255; b /= 255;
+                let max = Math.max(r, g, b), min = Math.min(r, g, b);
+                let h, s, v = max;
+                let d = max - min;
+                s = max === 0 ? 0 : d / max;
+                
+                if (max === min) {
+                    h = 0;
+                } else {
+                    switch (max) {
+                        case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+                        case g: h = (b - r) / d + 2; break;
+                        case b: h = (r - g) / d + 4; break;
+                    }
+                    h /= 6;
+                }
+                
+                return {
+                    h: Math.round(h * 360),
+                    s: Math.round(s * 100),
+                    v: Math.round(v * 100)
+                };
+            }
+
+            const hsv = rgbToHsv(r, g, b);
+
+            // Update display
+            document.getElementById('hexValue').textContent = hexColor;
+            document.getElementById('rgbValue').textContent = `rgb(${r}, ${g}, ${b})`;
+            document.getElementById('bgrValue').textContent = `BGR(${b}, ${g}, ${r})`;
+            document.getElementById('hsvValue').textContent = `H:${hsv.h} S:${hsv.s} V:${hsv.v}`;
+            document.getElementById('colorPreview').style.backgroundColor = hexColor;
+
+            // Send to server
+            sendColorToServer(hexColor);
+        }
+
+        // Send color to Flask server
+        async function sendColorToServer(hexColor) {
+            try {
+                const response = await fetch('/api/color', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ hex: hexColor })
+                });
+
+                if (response.ok) {
+                    const data = await response.json();
+                    updateStatus('connected', '✅ Renk güncellendi: ' + hexColor);
+                } else {
+                    updateStatus('disconnected', '❌ Sunucu hatası');
+                }
+            } catch (error) {
+                updateStatus('disconnected', '❌ Bağlantı hatası');
+                console.error('Error:', error);
+            }
+        }
+
+        // Update status
+        function updateStatus(type, message) {
+            const statusEl = document.getElementById('status');
+            statusEl.className = 'status ' + type;
+            statusEl.textContent = message;
+        }
+
+        // Pickr events
+        pickr.on('change', (color) => {
+            const hexColor = color.toHEXA().toString();
+            updateColorDisplay(hexColor);
+        }).on('changestop', (source, color) => {
+            if (color) {
+                const hexColor = color.toHEXA().toString();
+                updateColorDisplay(hexColor);
+            }
+        });
+
+        // Check connection on load
+        window.addEventListener('load', () => {
+            fetch('/api/color')
+                .then(r => r.json())
+                .then(data => {
+                    updateStatus('connected', '✅ gestureOS bağlı');
+                })
+                .catch(e => {
+                    updateStatus('waiting', '⏳ gestureOS için bekleniyor...');
+                });
+        });
+
+        // Periodic check
+        setInterval(() => {
+            fetch('/api/color')
+                .then(r => r.json())
+                .catch(e => {
+                    updateStatus('waiting', '⏳ gestureOS için bekleniyor...');
+                });
+        }, 5000);
+    </script>
+</body>
+</html>
