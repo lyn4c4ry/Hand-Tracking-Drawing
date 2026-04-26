@@ -54,6 +54,7 @@ state = {
     "fullscreen_toggle": True,     # Toggle fullscreen mode in settings
     "menu_open":       False,      # Main mode selection menu
     "ok_gesture_hold":  0,         # Frame counter for OK gesture hold
+    "ok_gesture_pressed": False,   # Flag to prevent multiple triggers from same hold
     "gesture_1_hold":   0,         # Frame counter for gesture 1 hold
     "gesture_2_hold":   0,         # Frame counter for gesture 2 hold
 }
@@ -425,7 +426,8 @@ while True:
             if ok_detected:
                 state["ok_gesture_hold"] += 1
                 # Toggle menu after 10 frames of holding gesture (faster response)
-                if state["ok_gesture_hold"] == 10:
+                # Only trigger once per gesture hold using the pressed flag
+                if state["ok_gesture_hold"] == 10 and not state["ok_gesture_pressed"]:
                     if not state["menu_open"]:
                         # Open menu
                         state["menu_open"] = True
@@ -441,9 +443,11 @@ while True:
                         else:
                             # Close menu without selection
                             state["menu_open"] = False
-                    state["ok_gesture_hold"] = 0  # Reset immediately
+                    state["ok_gesture_pressed"] = True  # Mark gesture as processed
             else:
+                # Gesture released
                 state["ok_gesture_hold"] = 0
+                state["ok_gesture_pressed"] = False  # Reset for next gesture
 
         # ── Menu mode: Left hand gestures to select main mode ──
         if state["menu_open"] and left_landmarks:
