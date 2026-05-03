@@ -1,0 +1,13 @@
+# gestureOS - Hand Tracking Drawing Application
+# Bağımlılıklar
+
+# Video işleme ve görüntü işleme
+opencv-python>=4.5.0
+
+# El izleme ve jest tanıma
+mediapipe>=0.8.0
+
+# Matematik ve veri işleme
+numpy>=1.19.0
+
+# Not: tkinter Python ile birlikte gelir, ayrı kuruluma gerek yok
