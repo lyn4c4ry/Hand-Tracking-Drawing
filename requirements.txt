@@ -10,4 +10,10 @@ mediapipe>=0.8.0
 # Matematik ve veri işleme
 numpy>=1.19.0
 
+# Web sunucusu
+Flask>=2.0.0
+
+# HTTP istekleri
+requests>=2.25.0
+
 # Not: tkinter Python ile birlikte gelir, ayrı kuruluma gerek yok

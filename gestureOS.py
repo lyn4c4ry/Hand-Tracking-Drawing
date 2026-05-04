@@ -38,16 +38,27 @@ DRAW_COLOR     = (0, 255, 0)
 DRAW_THICKNESS = 4
 ERASER_SIZE    = 40
 
-# Drawing mode colors
+# Drawing mode colors (BGR format)
 DRAW_COLORS = [
-    (0, 255, 0),      # Green
-    (255, 0, 0),      # Blue
-    (0, 255, 255),    # Yellow
-    (255, 0, 255),    # Magenta
-    (0, 165, 255),    # Orange
-    (255, 255, 0),    # Cyan
-    (0, 150, 255),    # Light Orange
-    (255, 100, 0),    # Dark Blue
+    (0, 255, 0),       # Green
+    (255, 0, 0),       # Blue
+    (0, 255, 255),     # Yellow
+    (255, 0, 255),     # Magenta
+    (0, 165, 255),     # Orange
+    (255, 255, 0),     # Cyan
+    (0, 150, 255),     # Light Orange
+    (255, 100, 0),     # Dark Blue
+    (255, 255, 255),   # White
+    (0, 0, 0),         # Black
+    (128, 128, 128),   # Gray
+    (0, 128, 128),     # Teal
+]
+
+# Color names for display
+COLOR_NAMES = [
+    "Green", "Blue", "Yellow", "Magenta",
+    "Orange", "Cyan", "Lt Orange", "Dk Blue",
+    "White", "Black", "Gray", "Teal"
 ]
 
 # Settings button region (top-right corner)
@@ -97,6 +108,8 @@ state = {
     "flask_color_bgr": (0, 255, 0),   # Flask web picker color (BGR)
     "flask_color_hex": "#00FF00",      # Flask web picker color (HEX)
     "last_flask_check": time.time(),  # Last Flask API check
+    "color_palette_rects": [],     # Color palette rectangle positions
+    "color_hover_idx": -1,         # Hovered color index (-1 if none)
 }
 Path(state["screenshots_dir"]).mkdir(parents=True, exist_ok=True)
 
@@ -469,6 +482,196 @@ def draw_grid_color_palette(frame, center):
         cv2.rectangle(frame, (x1, y1), (x2, y2), DRAW_COLORS[i], -1)
         cv2.rectangle(frame, (x1, y1), (x2, y2), (200, 200, 200), 1)
 
+def draw_elegant_color_palette(frame, center):
+    """Draw an elegant horizontal color palette with selection feedback."""
+    palette_width = WIDTH - 100
+    palette_height = 80
+    palette_x1 = 50
+    palette_y1 = center[1] - palette_height // 2
+    palette_x2 = palette_x1 + palette_width
+    palette_y2 = palette_y1 + palette_height
+    
+    # Draw main palette background with gradient effect
+    cv2.rectangle(frame, (palette_x1 - 5, palette_y1 - 5), 
+                  (palette_x2 + 5, palette_y2 + 5), (20, 20, 20), -1)
+    cv2.rectangle(frame, (palette_x1, palette_y1), 
+                  (palette_x2, palette_y2), (50, 50, 50), -1)
+    cv2.rectangle(frame, (palette_x1, palette_y1), 
+                  (palette_x2, palette_y2), (200, 200, 200), 3)
+    
+    # Draw title
+    cv2.putText(frame, "COLOR PALETTE - Point with LEFT INDEX FINGER", 
+                (palette_x1, palette_y1 - 15),
+                cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 2)
+    
+    # Calculate color box dimensions
+    num_colors = len(DRAW_COLORS)
+    box_width = (palette_width - 20) // num_colors
+    box_height = palette_height - 20
+    box_padding = 10
+    
+    # Store color positions for interaction detection
+    state["color_palette_rects"] = []
+    
+    for i in range(num_colors):
+        box_x1 = palette_x1 + 10 + i * (box_width + box_padding)
+        box_y1 = palette_y1 + 10
+        box_x2 = box_x1 + box_width
+        box_y2 = box_y1 + box_height
+        
+        # Store position
+        state["color_palette_rects"].append((box_x1, box_y1, box_x2, box_y2, i))
+        
+        # Draw background shadow
+        cv2.rectangle(frame, (box_x1 + 2, box_y1 + 2), 
+                      (box_x2 + 2, box_y2 + 2), (20, 20, 20), -1)
+        
+        # Draw color box
+        cv2.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), DRAW_COLORS[i], -1)
+        
+        # Highlight selected or hovered color
+        border_color = (255, 255, 0)  # Yellow for selected
+        border_width = 4
+        
+        if i == state["draw_color_idx"]:
+            cv2.rectangle(frame, (box_x1 - 3, box_y1 - 3), 
+                          (box_x2 + 3, box_y2 + 3), border_color, border_width)
+            # Draw selection indicator below
+            cv2.circle(frame, ((box_x1 + box_x2) // 2, box_y2 + 15), 5, border_color, -1)
+        elif i == state["color_hover_idx"]:
+            cv2.rectangle(frame, (box_x1 - 2, box_y1 - 2), 
+                          (box_x2 + 2, box_y2 + 2), (150, 200, 255), 3)
+        else:
+            cv2.rectangle(frame, (box_x1, box_y1), (box_x2, box_y2), (200, 200, 200), 2)
+        
+        # Draw color name below
+        text_y = box_y2 + 25
+        cv2.putText(frame, COLOR_NAMES[i][:3], 
+                    ((box_x1 + box_x2) // 2 - 15, text_y),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.45, (200, 200, 200), 1)
+    
+    # Draw info bar
+    info_text = f"Selected: {COLOR_NAMES[state['draw_color_idx']]} | HEX: BGR{DRAW_COLORS[state['draw_color_idx']]}"
+    cv2.rectangle(frame, (palette_x1, palette_y2 + 35), 
+                  (palette_x2, palette_y2 + 65), (40, 40, 40), -1)
+    cv2.rectangle(frame, (palette_x1, palette_y2 + 35), 
+                  (palette_x2, palette_y2 + 65), (150, 150, 150), 2)
+    cv2.putText(frame, info_text, 
+                (palette_x1 + 10, palette_y2 + 55),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1)
+
+def detect_color_selection(left_landmarks, w, h):
+    """Detect if left hand index finger is pointing at a color box or circle."""
+    if not state["color_palette_rects"]:
+        state["color_hover_idx"] = -1
+        return False
+    
+    # Get left index finger position
+    index_pos = get_pos(left_landmarks[8], w, h)
+    
+    selected = False
+    first_rect = state["color_palette_rects"][0]
+    
+    # Check if it's box format (5-tuple) or circle format (4-tuple)
+    if len(first_rect) == 5:
+        # Elegant palette - rectangular boxes
+        for box_x1, box_y1, box_x2, box_y2, color_idx in state["color_palette_rects"]:
+            if box_x1 <= index_pos[0] <= box_x2 and box_y1 <= index_pos[1] <= box_y2:
+                state["color_hover_idx"] = color_idx
+                # Select color if only index finger is extended
+                if only_index_up(left_landmarks):
+                    state["draw_color_idx"] = color_idx
+                    selected = True
+                return selected
+    else:
+        # Circular palette - circular zones
+        for x, y, color_size, color_idx in state["color_palette_rects"]:
+            distance = math.sqrt((index_pos[0] - x)**2 + (index_pos[1] - y)**2)
+            if distance <= color_size + 8:  # Add some tolerance
+                state["color_hover_idx"] = color_idx
+                # Select color if only index finger is extended
+                if only_index_up(left_landmarks):
+                    state["draw_color_idx"] = color_idx
+                    selected = True
+                return selected
+    
+    state["color_hover_idx"] = -1
+    return False
+
+def draw_circular_color_palette(frame, center, radius=120, inner_radius=60):
+    """Draw an elegant circular color palette at the specified center."""
+    num_colors = len(DRAW_COLORS)
+    angle_step = 360 / num_colors
+    
+    # Draw outer circle background with gradient effect
+    cv2.circle(frame, center, radius + 30, (20, 20, 20), -1)
+    for i in range(5):
+        cv2.circle(frame, center, radius + 30 - i*4, 
+                   (40 + i*15, 40 + i*15, 40 + i*15), 2)
+    
+    cv2.circle(frame, center, radius + 28, (100, 100, 100), 3)
+    
+    # Draw instruction circle
+    cv2.circle(frame, center, radius + 15, (50, 50, 50), 2)
+    
+    # Draw title
+    cv2.putText(frame, "COLOR WHEEL", (center[0] - 70, center[1] - radius - 50), 
+                cv2.FONT_HERSHEY_DUPLEX, 0.9, (255, 255, 255), 2)
+    cv2.putText(frame, "LEFT INDEX FINGER", (center[0] - 90, center[1] - radius - 25), 
+                cv2.FONT_HERSHEY_DUPLEX, 0.65, (150, 200, 255), 1)
+    
+    # Store color positions for interaction detection
+    state["color_palette_rects"] = []
+    
+    # Draw colors in circle
+    for i in range(num_colors):
+        angle = math.radians(i * angle_step - 90)
+        x = int(center[0] + radius * math.cos(angle))
+        y = int(center[1] + radius * math.sin(angle))
+        
+        color_size = 28
+        
+        # Store position as circular region
+        state["color_palette_rects"].append((x, y, color_size, i))
+        
+        # Draw outer shadow
+        cv2.circle(frame, (x, y), color_size + 4, (30, 30, 30), -1)
+        
+        # Draw color circle
+        cv2.circle(frame, (x, y), color_size, DRAW_COLORS[i], -1)
+        
+        # Draw border based on state
+        if i == state["draw_color_idx"]:
+            # Selected color - bright yellow border with glow
+            cv2.circle(frame, (x, y), color_size + 6, (0, 255, 255), 4)
+            cv2.circle(frame, (x, y), color_size + 11, (100, 255, 255), 2)
+        elif i == state["color_hover_idx"]:
+            # Hovered color - light blue border
+            cv2.circle(frame, (x, y), color_size + 5, (255, 200, 0), 3)
+        else:
+            # Normal - gray border
+            cv2.circle(frame, (x, y), color_size + 2, (200, 200, 200), 2)
+        
+        # Draw color number/name
+        text_angle = math.radians(i * angle_step - 90)
+        text_x = int(center[0] + (radius - 40) * math.cos(text_angle))
+        text_y = int(center[1] + (radius - 40) * math.sin(text_angle))
+        cv2.putText(frame, str(i + 1), (text_x - 8, text_y + 8),
+                    cv2.FONT_HERSHEY_DUPLEX, 0.6, (200, 200, 200), 1)
+    
+    # Draw center info circle
+    cv2.circle(frame, center, 22, (100, 100, 150), -1)
+    cv2.circle(frame, center, 22, (255, 255, 255), 2)
+    cv2.putText(frame, "OK", (center[0] - 15, center[1] + 8),
+                cv2.FONT_HERSHEY_DUPLEX, 0.7, (255, 255, 255), 2)
+    
+    # Draw info text below
+    info_y = center[1] + radius + 40
+    selected_color = COLOR_NAMES[state["draw_color_idx"]]
+    cv2.putText(frame, f"Selected: {selected_color}", 
+                (center[0] - 100, info_y),
+                cv2.FONT_HERSHEY_DUPLEX, 0.7, (0, 255, 0), 2)
+
 # ── Mouse callback ─────────────────────────────────────────────────────────────
 def on_mouse(event, x, y, flags, param):
     state["mouse_pos"] = (x, y)
@@ -500,7 +703,7 @@ while True:
                     data = response.json()
                     bgr_tuple = tuple(data.get('bgr', (0, 255, 0)))
                     hex_color = data.get('hex', '#00FF00')
-                    state["current_draw_color"] = bgr_tuple
+                    state["flask_color_bgr"] = bgr_tuple
                     state["flask_color_hex"] = hex_color
             except:
                 pass
@@ -615,8 +818,17 @@ while True:
             # Left hand controls drawing
             if left_landmarks:
                 if state["sub_mode"] == "COLOR_PICKER":
-                    # Color picker mode - just display palette, no drawing
+                    # Color picker mode - detect color selection with left hand index finger
+                    detect_color_selection(left_landmarks, w, h)
                     state["prev_point"] = None
+                    
+                    # Visual feedback for index finger in color picker mode
+                    if only_index_up(left_landmarks):
+                        index_pos = get_pos(left_landmarks[8], w, h)
+                        # Draw index finger pointer
+                        cv2.circle(frame, index_pos, 15, (0, 200, 255), 2)
+                        cv2.circle(frame, index_pos, 8, (100, 255, 200), -1)
+                        cv2.circle(frame, index_pos, 3, (255, 255, 255), -1)
                 elif state["sub_mode"] == "DRAW":
                     if only_index_up(left_landmarks):
                         draw_point = get_pos(left_landmarks[8], w, h)
@@ -677,8 +889,9 @@ while True:
 
         # ── Draw palette if in COLOR_PICKER mode ──
         if state["main_mode"] == "DRAWING" and state["sub_mode"] == "COLOR_PICKER":
-            palette_center = (WIDTH // 2, HEIGHT - 150)
-            draw_circular_color_palette(frame, palette_center, radius=120, inner_radius=60)
+            # Use elegant horizontal palette for better left hand interaction
+            palette_center_y = HEIGHT // 2
+            draw_elegant_color_palette(frame, (WIDTH // 2, palette_center_y))
 
         # ── HUD with Enhanced Styling ──
         if state["main_mode"] == "DRAWING":
@@ -712,7 +925,7 @@ while True:
         # Controls text with background
         if state["main_mode"] == "DRAWING":
             if state["sub_mode"] == "COLOR_PICKER":
-                controls_text = "COLOR PICKER MODE | RIGHT: 4 fingers=Exit  |  S=Snap | D=Drawing | Q=Quit"
+                controls_text = "COLOR PICKER | LEFT Index Finger=Select Color | 4 Fingers (RIGHT)=Exit | S=Snap | Q=Quit"
             else:
                 controls_text = "RIGHT: 1 finger=DRAW | 2 fingers=FREE | 3 fingers=ERASE | 4 fingers=COLOR PALETTE | Pinch=Menu | S=Snap | D=Drawing | Q=Quit"
         else:
